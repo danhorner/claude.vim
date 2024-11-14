@@ -30,6 +30,10 @@ if !exists('g:claude_aws_profile')
   let g:claude_aws_profile = ''
 endif
 
+if !exists('g:claude_only_send_marked_buffers')
+  let g:claude_only_send_marked_buffers = 0
+endif
+
 if !exists('g:claude_map_implement')
   let g:claude_map_implement = '<leader>ci'
 endif
@@ -45,6 +49,7 @@ endif
 if !exists('g:claude_map_cancel_response')
   let g:claude_map_cancel_response = '<leader>cx'
 endif
+
 
 " ============================================================================
 " Keybindings setup
@@ -472,6 +477,7 @@ function! s:ExecuteOpenTool(path)
   let l:current_winid = win_getid()
 
   topleft 1new
+  let b:claude_send_this_buffer=1
 
   try
     execute 'edit ' . fnameescape(a:path)
@@ -502,6 +508,7 @@ function! s:ExecuteNewTool(path)
   topleft 1new
   execute 'silent write ' . fnameescape(a:path)
   let l:bufname = bufname('%')
+  let b:claude_send_this_buffer=1
 
   call win_gotoid(l:current_winid)
   return l:bufname
@@ -514,6 +521,7 @@ function! s:ExecuteOpenWebTool(url)
   setlocal buftype=nofile
   setlocal bufhidden=hide
   setlocal noswapfile
+  let b:claude_send_this_buffer=1
 
   execute ':r !elinks -dump ' . escape(shellescape(a:url), '%#!')
   if v:shell_error
@@ -893,13 +901,32 @@ function! s:ParseChatBuffer()
   return [filter(l:messages, {_, v -> !empty(v.content)}), join(l:system_prompt, "\n")]
 endfunction
 
-
 " ----- Sending messages
+function! s:ShouldSendBuffer(bufnr)
+  if g:claude_only_send_marked_buffers
+    return bufname(a:bufnr) != 'Claude Chat' && getbufvar(a:bufnr, 'claude_send_this_buffer', 0)
+  else
+    return buflisted(a:bufnr) && bufname(a:bufnr) != 'Claude Chat' && !empty(win_findbuf(a:bufnr))
+  endif
+endfunction
+
+function! s:ClaudeShowBuffers()
+  echo "SENDING BUFFERS:"
+  for bufnr in range(1, bufnr('$'))
+    if s:ShouldSendBuffer(bufnr)
+      echo "  - " . bufnr . " " . bufname(bufnr)
+    endif
+  endfor
+endfunction
+
+command! ClaudeShowBuffers call <SID>ClaudeShowBuffers()
+command! -nargs=? ClaudeSendBuffer call setbufvar(<q-args>,'claude_send_this_buffer',1)
+command! -nargs=? ClaudeToggleSendBuffer call setbufvar(<q-args>, 'claude_send_this_buffer', !getbufvar(<q-args>,'claude_send_this_buffer',0))
 
 function! s:GetBuffersContent()
   let l:buffers = []
   for bufnr in range(1, bufnr('$'))
-    if buflisted(bufnr) && bufname(bufnr) != 'Claude Chat' && !empty(win_findbuf(bufnr))
+    if s:ShouldSendBuffer(bufnr)
       let l:bufname = bufname(bufnr)
       let l:contents = join(getbufline(bufnr, 1, '$'), "\n")
       call add(l:buffers, {'name': l:bufname, 'contents': l:contents})
