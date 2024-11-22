@@ -1,6 +1,26 @@
 " File: plugin/claude.vim
 " vim: sw=2 ts=2 et
 
+"" Logging functions
+function! s:GetLogBuffer()
+  let l:bufname = 'Claude Debug Log'
+  let l:bufnr = bufnr(l:bufname)
+  if l:bufnr == -1
+    "" Create new buffer if it doesn't exist
+    execute 'silent! new ' . l:bufname
+    setlocal buftype=nofile bufhidden=hide noswapfile
+    let l:bufnr = bufnr('%')
+    wincmd c  " Close the window but keep the buffer
+  endif
+  return l:bufnr
+endfunction
+
+function! s:LogMessage(msg)
+  let l:bufnr = s:GetLogBuffer()
+  let l:timestamp = strftime('%Y-%m-%d %H:%M:%S')
+  call appendbufline(l:bufnr, '$', l:timestamp . ' | ' . a:msg)
+endfunction
+
 " Configuration variables
 if !exists('g:claude_api_key')
   let g:claude_api_key = ''
@@ -186,6 +206,8 @@ function! s:ClaudeQueryInternal(messages, buffers, system_prompt, tools, stream_
     if !empty(a:tools)
       call extend(l:cmd, ['--tools', json_encode(a:tools)])
     endif
+
+    call s:LogMessage('AWS Bedrock request: ' . join(l:cmd, ' '))
   else
     let l:url = g:claude_api_url
     let l:data = {
@@ -210,6 +232,8 @@ function! s:ClaudeQueryInternal(messages, buffers, system_prompt, tools, stream_
     let l:cmd = ['curl', '-s', '-N', '-X', 'POST']
     call extend(l:cmd, l:headers)
     call extend(l:cmd, ['-d', l:json_data, l:url])
+
+   call s:LogMessage('Claude API request: ' . join(map(copy(l:cmd), {idx, val -> val =~ "^[A-Za-z0-9_/-]*$" ? val : shellescape(val)}), ' '))
   endif
 
   " Start the job
@@ -243,6 +267,7 @@ function! s:DisplayTokenUsageAndCost(input_usage, final_usage)
 endfunction
 
 function! s:HandleStreamOutput(stream_callback, final_callback, channel, msg)
+	call s:LogMessage("Response Stream:" . a:msg)
   " Split the message into lines
   let l:lines = split(a:msg, "\n")
   for l:line in l:lines
@@ -302,6 +327,7 @@ function! s:HandleJobError(stream_callback, final_callback, channel, msg)
 endfunction
 
 function! s:HandleJobExit(stream_callback, final_callback, job, status)
+  call s:LogMessage('Job Exit with status: ' . a:status)
   if a:status != 0
     call a:stream_callback('Error: Job exited with status ' . a:status)
     call a:final_callback()
@@ -521,24 +547,30 @@ function! s:ExecuteTool(tool_name, arguments)
 endfunction
 
 function! s:ExecutePythonCode(code)
+  call s:LogMessage('Python code execution request: ' . a:code)
   redraw
   let l:confirm = input("Execute this Python code? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
   if l:confirm =~? '^y'
     let l:result = system('python3 -c ' . shellescape(a:code))
+    call s:LogMessage('Python output: ' . substitute(l:result, '\n', '\n                     | ', 'g'))
     return l:result
   else
+    call s:LogMessage('Python execution cancelled by user')
     return "Python code execution cancelled by user."
   endif
 endfunction
 
 function! s:ExecuteShellCommand(command)
+  call s:LogMessage('Shell command execution request: ' . a:command)
   redraw
   let l:confirm = input("Execute this shell command? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
   if l:confirm =~? '^y'
     let l:output = system(a:command)
     let l:exit_status = v:shell_error
+    call s:LogMessage('Shell command output (status=' . l:exit_status . '): ' . substitute(l:output, '\n', '\n                     | ', 'g'))
     return l:output . "\nExit status: " . l:exit_status
   else
+    call s:LogMessage('Shell command execution cancelled by user')
     return "Shell command execution cancelled by user."
   endif
 endfunction
