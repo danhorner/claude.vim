@@ -1,0 +1,139 @@
+#
+# Included buffer list should be updated
+#
+
+Given:
+  These test cases create named buffers and verify that only
+  selected buffers appear in claude's list
+
+Before (Make Test Buffers):
+  let buf1_name = "claude_vader_buf1"
+  exe "vsp " . buf1_name
+  set buftype=nofile
+  normal! ggdG
+  let buf1_nr = bufnr(buf1_name)
+
+  let buf2_name = "claude_vader_buf2"
+  exe "vsp " . buf2_name
+  set buftype=nofile
+  normal! ggdG
+  let buf2_nr = bufnr(buf2_name)
+
+After (Delete test buffers):
+  exe "silent bwipeout " . buf1_nr  " " buf2_nr
+
+Execute (Start claude with marked buffers on):
+  let g:claude_only_send_marked_buffers=1
+
+  ClaudeChat
+  exe "ClaudeMarkBuffer " . buf1_nr
+  :1
+  call search("Included buffers")
+  let last_line=search("System prompt:","n")
+
+Then ( - Check only marked buffers included):
+  AssertNotEqual 0, search(buf1_name, "n", last_line), "Buffer 1 originally included"
+  AssertEqual 0, search(buf2_name, "n", last_line), "Buffer 2 originally excluded"
+  exe "ClaudeMarkBuffer " . buf1_nr
+  exe "ClaudeMarkBuffer " . buf2_nr
+* call foreach(getline(".", last_line), 'Log v:val')
+  AssertEqual 0, search(buf1_name, "n", last_line), "Buffer 1 excluded after switch"
+  AssertNotEqual 0, search(buf2_name, "n", last_line), "Buffer 2 included after switch"
+
+Execute (Start Claude with marked buffers off):
+  let g:claude_only_send_marked_buffers=0
+  ClaudeChat
+  :1
+  call search("Included buffers")
+  let last_line=search("System prompt:","n")
+
+Then ( - Check all visible buffers included):
+  AssertNotEqual 0, search(buf1_name, "n" ), "Buffer 1 included when visible"
+  AssertNotEqual 0, search(buf2_name, "n"), "Buffer 2 included when visible"
+# 
+
+
+#
+# Test: Buffer Inclusion Logic
+#
+
+Given:
+  Testing buffer inclusion logic for Claude
+
+Before (Make Test Buffers):
+  " Create a set of test buffers with different states
+  let g:test_buffers = []
+
+  " Regular buffer
+  let buf1_name = "claude_test_buf1"
+  exe "new " . buf1_name
+  call setline(1, "Content 1")
+  let buf1_nr = bufnr(buf1_name)
+  call add(g:test_buffers, buf1_nr)
+
+  " Hidden buffer 
+  let buf2_name = "claude_test_buf2"
+  exe "new " . buf2_name
+  call setline(1, "Content 2")
+  let buf2_nr = bufnr(buf2_name)
+  hide
+  call add(g:test_buffers, buf2_nr)
+
+  " No-file buffer
+  let buf3_name = "claude_test_buf3"
+  exe "new " . buf3_name
+  setlocal buftype=nofile
+  call setline(1, "Content 3")
+  let buf3_nr = bufnr(buf3_name)
+  call add(g:test_buffers, buf3_nr)
+
+After (Cleanup test buffers):
+  for buf in g:test_buffers
+    exe "bwipeout! " . buf
+  endfor
+  unlet g:test_buffers
+
+Execute (Test default inclusion - all visible):
+  let g:claude_only_send_marked_buffers = 0
+  let included = claude#test.GetIncludedBuffers()
+  AssertNotEqual -1, index(included, buf1_nr), "Regular buffer should be included"
+  AssertEqual -1, index(included, buf2_nr), "Hidden buffer should not be included"
+  AssertNotEqual -1, index(included, buf3_nr), "Nofile buffer should be included"
+
+Execute (Test marked-only inclusion):
+  let g:claude_only_send_marked_buffers = 1
+  let included = claude#test.GetIncludedBuffers()
+  AssertEqual -1, index(included, buf1_nr), "Unmarked buffer should not be included"
+  AssertEqual -1, index(included, buf2_nr), "Hidden buffer should not be included"
+  AssertEqual -1, index(included, buf3_nr), "Unmarked nofile buffer should not be included"
+
+  " Mark buffer 1 and verify
+  exe "ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers()
+  AssertNotEqual -1, index(included, buf1_nr), "Marked buffer should be included"
+
+Execute (Test buffer content collection):
+  let g:claude_only_send_marked_buffers = 0
+  let contents = claude#test.GetBuffersContent()
+  
+  " Find content for buf1
+  let buf1_content = filter(copy(contents), 'v:val.name =~ "claude_test_buf1"')
+  AssertEqual 1, len(buf1_content), "Should find exactly one matching buffer"
+  AssertEqual "Content 1", buf1_content[0].contents, "Content should match"
+
+  " Hidden buffer should not be included
+  let buf2_content = filter(copy(contents), 'v:val.name =~ "claude_test_buf2"')
+  AssertEqual 0, len(buf2_content), "Hidden buffer should not be included"
+
+Execute (Test marking interaction):
+  let g:claude_only_send_marked_buffers = 1
+  
+  " Mark and unmark buffer
+  exe "ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers()
+  AssertNotEqual -1, index(included, buf1_nr), "Buffer should be included after marking"
+  
+  exe "ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers()
+  AssertEqual -1, index(included, buf1_nr), "Buffer should not be included after unmarking"
+

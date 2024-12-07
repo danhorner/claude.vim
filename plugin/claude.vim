@@ -49,6 +49,10 @@ if !exists('g:claude_map_cancel_response')
   let g:claude_map_cancel_response = '<leader>cx'
 endif
 
+if !exists('g:claude_testing')
+  let g:claude_testing = 0
+endif
+
 " ============================================================================
 " Logging functions {{{1
 " ============================================================================
@@ -1129,6 +1133,7 @@ function! s:ResponseExtractChanges()
 
   return l:all_changes
 endfunction
+
 function s:ApplyChangesFromResponse()
   let l:all_changes = s:ResponseExtractChanges()
   if !empty(l:all_changes)
@@ -1239,4 +1244,16 @@ function! s:CancelClaudeResponse()
     echo "No ongoing Claude response to cancel."
   endif
 endfunction
+
+if g:claude_testing
+  let claude#test = { 
+    \ 'InflateMessageContent': function("s:InflateMessageContent"),
+    \ 'ParseChatBuffer': function("s:ParseChatBuffer"),
+    \ 'ResponseExtractToolUses': function("s:ResponseExtractToolUses"),
+    \ 'GetBuffersContent': function("s:GetBuffersContent"),
+    \ 'GetIncludedBuffers': function("s:GetIncludedBuffers"),
+    \ }
+
+  call s:SetupClaudeKeybindings()
+endif
 
