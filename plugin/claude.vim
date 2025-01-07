@@ -365,7 +365,7 @@ endfunction
 
 
 " ============================================================================
-" Marked Buffers and Status Region
+" Marked Buffers and Status Region {{{1
 " ============================================================================
 
 command! -bar -nargs=0 ClaudeOnlySendMarkedBuffers call s:ToggleOnlySendMarkedBuffers()
