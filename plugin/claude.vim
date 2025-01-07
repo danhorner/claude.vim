@@ -1,7 +1,9 @@
 " File: plugin/claude.vim
-" vim: sw=2 ts=2 et
+" vim: sw=2 ts=2 et fdm=marker fdl=0 fdc=1
 
-" Configuration variables
+" ============================================================================
+" Configuration variables {{{1
+" ============================================================================
 
 if !exists('g:claude_api_key')
   let g:claude_api_key = ''
@@ -60,9 +62,37 @@ if !exists('g:claude_map_cancel_response')
   let g:claude_map_cancel_response = '<leader>cx'
 endif
 
+if !exists('g:claude_testing')
+  let g:claude_testing = 0
+endif
 
 " ============================================================================
-" Keybindings setup
+" Logging functions {{{1
+" ============================================================================
+
+function! s:GetLogBuffer()
+  let l:bufname = 'Claude Debug Log'
+  let l:bufnr = bufnr(l:bufname)
+  if l:bufnr == -1
+    "" Create new buffer if it doesn't exist
+    execute 'silent! new ' . l:bufname
+    setlocal buftype=nofile bufhidden=hide noswapfile
+    let l:bufnr = bufnr('%')
+    wincmd c  " Close the window but keep the buffer
+  endif
+  return l:bufnr
+endfunction
+
+function! s:LogMessage(msg)
+  let l:bufnr = s:GetLogBuffer()
+  let l:timestamp = strftime('%Y-%m-%d %H:%M:%S')
+  call appendbufline(l:bufnr, '$', l:timestamp . ' | ' . a:msg)
+endfunction
+
+
+
+" ============================================================================
+" Keybindings setup {{{1
 " ============================================================================
 
 function! s:SetupClaudeKeybindings()
@@ -82,7 +112,10 @@ augroup ClaudeKeybindings
   autocmd VimEnter * call s:SetupClaudeKeybindings()
 augroup END
 
-"""""""""""""""""""""""""""""""""""""
+
+" ============================================================================
+" Load prompts from disk {{{1
+" ============================================================================
 
 let s:plugin_dir = expand('<sfile>:p:h')
 
@@ -101,9 +134,8 @@ if !exists('g:claude_implement_prompt')
 endif
 
 
-
 " ============================================================================
-" Claude API
+" Claude API {{{1
 " ============================================================================
 
 " {"role": "user", "content":"Hi"} -> {"role":"user", "content":[{"type":"text", "text": "hi"}]
@@ -185,6 +217,8 @@ function! s:ClaudeQueryInternal(messages, buffers, system_prompt, tools, stream_
     if !empty(a:tools)
       call extend(l:cmd, ['--tools', json_encode(a:tools)])
     endif
+
+    call s:LogMessage('AWS Bedrock request: ' . join(l:cmd, ' '))
   else
     let l:url = g:claude_api_url
     let l:data = {
@@ -209,6 +243,8 @@ function! s:ClaudeQueryInternal(messages, buffers, system_prompt, tools, stream_
     let l:cmd = ['curl', '-s', '-N', '-X', 'POST']
     call extend(l:cmd, l:headers)
     call extend(l:cmd, ['-d', l:json_data, l:url])
+
+   call s:LogMessage('Claude API request: ' . join(map(copy(l:cmd), {idx, val -> val =~ "^[A-Za-z0-9_/-]*$" ? val : shellescape(val)}), ' '))
   endif
 
   " Start the job
@@ -242,6 +278,7 @@ function! s:DisplayTokenUsageAndCost(input_usage, final_usage)
 endfunction
 
 function! s:HandleStreamOutput(stream_callback, final_callback, channel, msg)
+	call s:LogMessage("Response Stream:" . a:msg)
   " Split the message into lines
   let l:lines = split(a:msg, "\n")
   for l:line in l:lines
@@ -301,6 +338,7 @@ function! s:HandleJobError(stream_callback, final_callback, channel, msg)
 endfunction
 
 function! s:HandleJobExit(stream_callback, final_callback, job, status)
+  call s:LogMessage('Job Exit with status: ' . a:status)
   if a:status != 0
     call a:stream_callback('Error: Job exited with status ' . a:status)
     call a:final_callback()
@@ -468,9 +506,8 @@ function! s:buf_displayname(nr)
   return len(n) ? n : getbufvar(a:nr, '&buftype') == "nofile" ? "[Scratch]" : "[No Name]"
 endfunction
 
-
 " ============================================================================
-" Diff View
+" Diff View {{{1
 " ============================================================================
 
 function! s:ApplyChange(normal_command, content)
@@ -548,9 +585,8 @@ function! s:ApplyCodeChangesDiff(bufnr, changes)
 endfunction
 
 
-
 " ============================================================================
-" Tool Integration
+" Tool Integration {{{1
 " ============================================================================
 
 if !exists('g:claude_tools')
@@ -662,24 +698,30 @@ function! s:ExecuteTool(tool_name, arguments)
 endfunction
 
 function! s:ExecutePythonCode(code)
+  call s:LogMessage('Python code execution request: ' . a:code)
   redraw
   let l:confirm = input("Execute this Python code? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
   if l:confirm =~? '^y'
     let l:result = system('python3 -c ' . shellescape(a:code))
+    call s:LogMessage('Python output: ' . substitute(l:result, '\n', '\n                     | ', 'g'))
     return l:result
   else
+    call s:LogMessage('Python execution cancelled by user')
     return "Python code execution cancelled by user."
   endif
 endfunction
 
 function! s:ExecuteShellCommand(command)
+  call s:LogMessage('Shell command execution request: ' . a:command)
   redraw
   let l:confirm = input("Execute this shell command? (y/n/C-C; if you C-C to stop now, you can C-] later to resume) ")
   if l:confirm =~? '^y'
     let l:output = system(a:command)
     let l:exit_status = v:shell_error
+    call s:LogMessage('Shell command output (status=' . l:exit_status . '): ' . substitute(l:output, '\n', '\n                     | ', 'g'))
     return l:output . "\nExit status: " . l:exit_status
   else
+    call s:LogMessage('Shell command execution cancelled by user')
     return "Shell command execution cancelled by user."
   endif
 endfunction
@@ -750,7 +792,7 @@ endfunction
 
 
 " ============================================================================
-" ClaudeImplement
+" ClaudeImplement {{{1
 " ============================================================================
 
 function! s:LogImplementInChat(instruction, implement_response, bufname, start_line, end_line)
@@ -849,13 +891,10 @@ function! s:FinalImplementResponse(line1, line2, bufnr, bufname, winid, instruct
 endfunction
 
 
-
 " ============================================================================
-" ClaudeChat
+" ClaudeChat: Chat service functions {{{1
 " ============================================================================
 
-
-" ----- Chat service functions
 
 function! s:GetOrCreateChatWindow()
   let l:chat_bufnr = bufnr('Claude Chat')
@@ -890,7 +929,9 @@ function! s:AppendResponse(response)
 endfunction
 
 
-" ----- Chat window UX
+" ============================================================================
+" Chat window UX {{{1
+" ============================================================================
 
 function! GetChatFold(lnum)
   let l:line = getline(a:lnum)
@@ -1004,7 +1045,9 @@ function! s:OpenClaudeChat()
 endfunction
 
 
-" ----- Chat parser (to messages list)
+" ============================================================================
+" Chat parser (to messages list) {{{1
+" ============================================================================
 
 function! s:AddMessageToList(messages, message)
   " FIXME: Handle multiple tool_use, tool_result blocks at once
@@ -1020,6 +1063,8 @@ function! s:AddMessageToList(messages, message)
   endif
 endfunction
 
+" Messages have role, content text, and a tool-use, tool-result block
+"" Drops the first word in line, since it is the role
 function! s:InitMessage(role, line)
   return {
     \ 'role': a:role,
@@ -1075,9 +1120,14 @@ function! s:AppendContent(message, line)
   endif
 endfunction
 
+"" Closes the current message if line begins a new message
+"" Adds line to the current message, truncating prefix
 function! s:ProcessLine(line, messages, current_message)
   let l:new_message = copy(a:current_message)
 
+  ""Unindented lines begin a new message, and the current message is saved
+  "" Claude responses may include a tool use block
+  "" Tool result appers as a user block with a tool_result annotation
   if a:line =~ '^You:'
     call s:AddMessageToList(a:messages, l:new_message)
     let l:new_message = s:InitMessage('user', a:line)
@@ -1104,6 +1154,8 @@ function! s:ParseChatBuffer()
   let l:in_system_prompt = 0
   let l:in_top_status_region = 0
 
+  "" The buffer consists of a system prompt followed by a set of messages
+  "" Unindented text after the system prompt goes into a message with no role and is discarded
   for line in l:buffer_content
     if line =~ 'Included buffers \[[0-9]*]:'
       let l:in_top_status_region = 1
@@ -1129,7 +1181,9 @@ function! s:ParseChatBuffer()
 endfunction
 
 
-" ----- Sending messages
+" ============================================================================
+" Sending messages {{{1
+" ============================================================================
 
 function! s:GetBuffersContent()
   let l:buffers = []
@@ -1147,8 +1201,10 @@ function! s:GetBuffersContent()
 endfunction
 
 function! s:SendChatMessage(prefix)
+  " Parse the buffer into messages
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
 
+  " If the last message has a tool use block
   let l:tool_uses = s:ResponseExtractToolUses(l:messages)
   if !empty(l:tool_uses)
     for l:tool_use in l:tool_uses
@@ -1156,6 +1212,7 @@ function! s:SendChatMessage(prefix)
       call s:AppendToolResult(l:tool_use.id, l:tool_result)
     endfor
     let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+    call s:LogMessage("Messages after tool Result:" . string(l:messages))
   endif
 
   let l:buffer_contents = s:GetBuffersContent()
@@ -1172,11 +1229,14 @@ function! s:SendChatMessage(prefix)
   endif
 endfunction
 
+
 " Command to send message in normal mode
 command! ClaudeSend call <SID>SendChatMessage('Claude:')
 
 
-" ----- Handling responses: Tool use
+" ============================================================================
+" Handling responses: Tool use {{{1
+" ============================================================================
 
 function! s:ResponseExtractToolUses(messages)
   if len(a:messages) == 0
@@ -1209,7 +1269,9 @@ function! s:AppendToolResult(tool_call_id, result)
 endfunction
 
 
-" ----- Handling responses: Code changes
+" ============================================================================
+" Handling responses: Code changes {{{1
+" ============================================================================
 
 function! s:ProcessCodeBlock(block, all_changes)
   let l:matches = matchlist(a:block.header, '^\(\S\+\)\s\+\([^:]\+\)\%(:\(.*\)\)\?$')
@@ -1307,7 +1369,9 @@ function s:ApplyChangesFromResponse()
 endfunction
 
 
-" ----- Handling responses
+" ============================================================================
+" Handling responses {{{1
+" ============================================================================
 
 function! s:ClosePreviousFold()
   let l:save_cursor = getpos(".")
@@ -1371,6 +1435,7 @@ endfunction
 function! s:FinalChatResponse()
   let [l:chat_bufnr, l:chat_winid, l:current_winid] = s:GetOrCreateChatWindow()
   let [l:messages, l:system_prompt] = s:ParseChatBuffer()
+  call s:LogMessage("Final Chat Response:" . string(l:messages))
   let l:tool_uses = s:ResponseExtractToolUses(l:messages)
 
   call s:ApplyChangesFromResponse()
@@ -1403,3 +1468,16 @@ function! s:CancelClaudeResponse()
     echo "No ongoing Claude response to cancel."
   endif
 endfunction
+
+if g:claude_testing
+  let claude#test = { 
+    \ 'InflateMessageContent': function("s:InflateMessageContent"),
+    \ 'ParseChatBuffer': function("s:ParseChatBuffer"),
+    \ 'ResponseExtractToolUses': function("s:ResponseExtractToolUses"),
+    \ 'GetBuffersContent': function("s:GetBuffersContent"),
+    \ 'GetIncludedBuffers': function("s:GetIncludedBuffers"),
+    \ }
+
+  call s:SetupClaudeKeybindings()
+endif
+

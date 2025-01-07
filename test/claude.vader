@@ -1,0 +1,201 @@
+# How to run
+# nvim --cmd "let g:claude_testing=1" "+Vader" claude.vader     
+
+#
+# Testcases for Internal functions
+#
+
+# Test ClaudeMarkBuffer -> included buffer ui
+
+Include: included_buffers.vader
+
+#
+# Test: InflateMessageContent()
+#
+
+Before(Is Testing Enabled):
+  Assert exists("claude#test.ParseChatBuffer"), "Please define g:claude_testing=1 and source claude.vim again"
+After:
+
+Execute (InflateMessageContent(string payload)):
+  let msg = {'role': 'user', 'content': 'Write a song.'}
+  let expected = {'role': 'user', 'content': [{'type': 'text', 'text': 'Write a song.'}]}
+  let result = claude#test.InflateMessageContent(msg)
+Then:
+* Log "Expected: " . string(expected)
+  AssertEqual result, expected, "Inflated Message is " . string(result)
+
+Execute (InflateMessageContent(list payload)):
+  let msg = {'role': 'user', 'content': [{'type': 'text', 'text': 'Write a song.'}]}
+  let expected = {'role': 'user', 'content': [{'type': 'text', 'text': 'Write a song.'}]}
+  let result = claude#test.InflateMessageContent(msg)
+Then:
+* Log "Expected: " . string(expected)
+  AssertEqual result, expected, "Inflated Message is " . string(result)
+
+* Parser format
+* user message format:
+*  { 'role' : 'user',
+*    'content': ['list','of','lines'],
+*    'tool_use': {},
+*    'tool_result': {}
+*  }
+
+
+# Test: ParseChatBuffer()
+
+Given (Trivial Prompt buffer):
+  Included buffers [0]:  Sending all marked. Toggle with :ClaudeOnlySendMarkedBuffers
+  System prompt: This is a system prompt
+  	
+  	Tab prefix
+  	Ends with a blank line
+  
+  You: Hello
+  Indent
+
+Execute (Call ParseChatBuffer()):
+  let [messages, system_prompt] = claude#test.ParseChatBuffer()
+
+Then:
+  AssertEqual messages, [{'role': 'user', 'content': "Hello\nIndent"}]
+  AssertEqual system_prompt, "This is a system prompt\n\nTab prefix\nEnds with a blank line"
+
+Given (Multiturn Prompt buffer):
+  Included buffers [0]:  Sending all marked. Toggle with :ClaudeOnlySendMarkedBuffers
+  System prompt: This is a system prompt
+  	
+  	Tab prefix
+  	Ends with a blank line
+  
+  You: Hello
+  Indent
+  Claude: Oh, hi
+  You: More questions
+
+Execute (Call ParseChatBuffer()):
+  let [messages, system_prompt] = claude#test.ParseChatBuffer()
+
+Then:
+  AssertEqual messages, [
+  \{'role': 'user', 'content': "Hello\nIndent"},
+  \{'role': 'assistant', 'content': 'Oh, hi'},
+  \{'role': 'user', 'content': 'More questions'}
+  \]
+
+  AssertEqual system_prompt, "This is a system prompt\n\nTab prefix\nEnds with a blank line"
+
+Given (Minimal buffer):
+  Included buffers [2]:  Sending all marked. Toggle with :ClaudeOnlySendMarkedBuffers
+   ∙ 56 https://www.google.com/search?q=most%20popular%20dog%20breeds%202024%20AKC%20ranking
+   ∙ 57 https://www.google.com/search?q=French%20Bulldog%20breed%20characteristics%20AKC%20official
+  System prompt: You are claude.vim, the world's best AI pair programmer focused on concise, content-centric interactions.
+  	
+  	# Blah blah
+  	
+  
+  You:Search google for top dog breeds of 2024, and then give me a summary of features of the most common breed.
+  Claude: <thinking>
+  	Blah
+  	</thinking>
+  Tool use (toolu_01Wrc56wJJWBp11jhTWqSHeG): web_search
+  	Input: {"query": "most popular dog breeds 2024 AKC ranking"}
+  Tool result (toolu_01Wrc56wJJWBp11jhTWqSHeG):
+  	https://www.google.com/search\?q=most\%20popular\%20dog\%20breeds\%202024\%20AKC\%20ranking
+  Claude...: 
+  	
+  	Based on blah..
+  Tool use (toolu_01M4jj5FEGr6s8rjLPdWK5u9): web_search
+  	Input: {"query": "French Bulldog breed characteristics AKC official"}
+  Tool result (toolu_01M4jj5FEGr6s8rjLPdWK5u9):
+  	https://www.google.com/search\?q=French\%20Bulldog\%20breed\%20characteristics\%20AKC\%20official
+  Claude...: 
+  	
+  	Here's a summary of the French Bulldog's key features according to AKC official information:
+  	
+  	blablah
+  
+  You: 
+
+Execute (Call ParseChatBuffer()):
+  let [messages, system_prompt] = claude#test.ParseChatBuffer()
+
+Then:
+  
+  let expected_system = "You are claude.vim, the world's best AI pair programmer focused on concise, content-centric interactions.\n\n# Blah blah\n"
+  let expected_messages = [
+  \ {"role": "user", "content": "google for top dog breeds of 2024, and then give me a summary of features of the most common breed."},
+  \ {
+  \   "role": "assistant",
+  \   "content": [
+  \   {
+  \     "type": "text",
+  \     "text": "<thinking>\nBlah\n</thinking>"
+  \   },
+  \   {
+  \      "id": "toolu_01Wrc56wJJWBp11jhTWqSHeG", 
+  \      "name": "web_search",
+  \      "type": "tool_use", 
+  \      "input": { "query": "most popular dog breeds 2024 AKC ranking" }
+  \   }]}, 
+  \ {
+  \   "role": "user",
+  \   "content": [{
+  \     "tool_use_id": "toolu_01Wrc56wJJWBp11jhTWqSHeG",
+  \     "type": "tool_result", 
+  \     "content": "https://www.google.com/search\\?q=most\\%20popular\\%20dog\\%20breeds\\%202024\\%20AKC\\%20ranking"
+  \    }]
+  \ },
+  \ {
+  \   "role": "assistant",
+  \   "content": [
+  \     {
+  \      "type": "text",
+  \      "text": "\n\nBased on blah.."
+  \     },
+  \     {
+  \       "id": "toolu_01M4jj5FEGr6s8rjLPdWK5u9",
+  \       "name": "web_search",
+  \       "type": "tool_use",
+  \       "input": {"query": "French Bulldog breed characteristics AKC official"}
+  \      }
+  \   ]},
+  \ {
+  \   "role": "user",
+  \   "content": [{
+  \     "tool_use_id": "toolu_01M4jj5FEGr6s8rjLPdWK5u9",
+  \     "type": "tool_result",
+  \     "content": "https://www.google.com/search\\?q=French\\%20Bulldog\\%20breed\\%20characteristics\\%20AKC\\%20official"}
+  \   ]},
+  \ {
+  \   "role": "assistant",
+  \    "content": "\n\nHere\'s a summary of the French Bulldog's key features according to AKC official information:\n\nblablah\n"
+  \ }
+  \]
+  AssertEqual messages, expected_messages
+  AssertEqual system_prompt, expected_system
+
+# Test: ResponseExtractToolUses()
+
+Given (An Empty Buffer):
+  
+Execute (Call ResponseExtractToolUses()):
+  let messages = [
+  \   {"role": "user", "content": "Google something."},
+  \   {"role": "assistant", "content": [
+  \   {
+  \     "type": "text",
+  \     "text": "<thinking>\nBlah\n</thinking>"
+  \   },
+  \   {
+  \      "id": "toolu_01Wrc56wJJWBp11jhTWqSHeG", 
+  \      "name": "web_search",
+  \      "type": "tool_use", 
+  \      "input": { "query": "something"}
+  \   }]}, 
+  \]
+  let tool_uses = claude#test.ResponseExtractToolUses(messages)
+
+Then:
+  let expected_tool_uses= [{'id': 'toolu_01Wrc56wJJWBp11jhTWqSHeG', 'name': 'web_search', 'type': 'tool_use', 'input': {'query': 'something'}}]
+  AssertEqual tool_uses, expected_tool_uses
