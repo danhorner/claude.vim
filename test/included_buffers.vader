@@ -26,7 +26,7 @@ Execute (Start claude with marked buffers on):
   let g:claude_only_send_marked_buffers=1
 
   ClaudeChat
-  exe "ClaudeMarkBuffer " . buf1_nr
+  exe "silent ClaudeMarkBuffer " . buf1_nr
   :1
   call search("Included buffers")
   let last_line=search("System prompt:","n")
@@ -34,8 +34,8 @@ Execute (Start claude with marked buffers on):
 Then ( - Check only marked buffers included):
   AssertNotEqual 0, search(buf1_name, "n", last_line), "Buffer 1 originally included"
   AssertEqual 0, search(buf2_name, "n", last_line), "Buffer 2 originally excluded"
-  exe "ClaudeMarkBuffer " . buf1_nr
-  exe "ClaudeMarkBuffer " . buf2_nr
+  exe "silent ClaudeMarkBuffer " . buf1_nr
+  exe "silent ClaudeMarkBuffer " . buf2_nr
 * call foreach(getline(".", last_line), 'Log v:val')
   AssertEqual 0, search(buf1_name, "n", last_line), "Buffer 1 excluded after switch"
   AssertNotEqual 0, search(buf2_name, "n", last_line), "Buffer 2 included after switch"
@@ -61,6 +61,8 @@ Given:
   Testing buffer inclusion logic for Claude
 
 Before (Make Test Buffers):
+  bd Claude\ Chat
+  ClaudeChat
   " Create a set of test buffers with different states
   let g:test_buffers = []
 
@@ -87,29 +89,35 @@ Before (Make Test Buffers):
   let buf3_nr = bufnr(buf3_name)
   call add(g:test_buffers, buf3_nr)
 
+* Log printf("Test buffers: %s", g:test_buffers)
+
 After (Cleanup test buffers):
   for buf in g:test_buffers
     exe "bwipeout! " . buf
   endfor
   unlet g:test_buffers
+  if bufwinnr("Claude Chat") >= 0 | exe bufwinnr("Claude Chat")."close" | endif
 
 Execute (Test default inclusion - all visible):
   let g:claude_only_send_marked_buffers = 0
-  let included = claude#test.GetIncludedBuffers()
+  let included = claude#test.GetIncludedBuffers(bufnr('Claude Chat'))
   AssertNotEqual -1, index(included, buf1_nr), "Regular buffer should be included"
   AssertEqual -1, index(included, buf2_nr), "Hidden buffer should not be included"
   AssertNotEqual -1, index(included, buf3_nr), "Nofile buffer should be included"
 
 Execute (Test marked-only inclusion):
-  let g:claude_only_send_marked_buffers = 1
-  let included = claude#test.GetIncludedBuffers()
+  silent ClaudeOnlySendMarkedBuffers
+  let included = claude#test.GetIncludedBuffers(bufnr('Claude Chat'))
+  AssertEqual g:claude_only_send_marked_buffers, 1, "Expected setting to be enabled"
+* Log "Included buffers:"
+* call foreach(included, 'Log v:val . " - " . bufname(v:val)')
   AssertEqual -1, index(included, buf1_nr), "Unmarked buffer should not be included"
   AssertEqual -1, index(included, buf2_nr), "Hidden buffer should not be included"
   AssertEqual -1, index(included, buf3_nr), "Unmarked nofile buffer should not be included"
 
   " Mark buffer 1 and verify
-  exe "ClaudeMarkBuffer " . buf1_nr
-  let included = claude#test.GetIncludedBuffers()
+  exe "silent ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers(bufnr('Claude Chat'))
   AssertNotEqual -1, index(included, buf1_nr), "Marked buffer should be included"
 
 Execute (Test buffer content collection):
@@ -126,14 +134,15 @@ Execute (Test buffer content collection):
   AssertEqual 0, len(buf2_content), "Hidden buffer should not be included"
 
 Execute (Test marking interaction):
-  let g:claude_only_send_marked_buffers = 1
+  silent ClaudeOnlySendMarkedBuffers
   
   " Mark and unmark buffer
-  exe "ClaudeMarkBuffer " . buf1_nr
-  let included = claude#test.GetIncludedBuffers()
+  exe "silent ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers(bufnr('Claude Chat'))
+  AssertEqual g:claude_only_send_marked_buffers, 1, "Expected setting to be enabled"
   AssertNotEqual -1, index(included, buf1_nr), "Buffer should be included after marking"
   
-  exe "ClaudeMarkBuffer " . buf1_nr
-  let included = claude#test.GetIncludedBuffers()
+  exe "silent ClaudeMarkBuffer " . buf1_nr
+  let included = claude#test.GetIncludedBuffers(bufnr('Claude Chat'))
   AssertEqual -1, index(included, buf1_nr), "Buffer should not be included after unmarking"
 

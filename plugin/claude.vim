@@ -1469,6 +1469,10 @@ function! s:CancelClaudeResponse()
   endif
 endfunction
 
+" ============================================================================
+" Test Harness {{{1
+" ============================================================================
+
 if g:claude_testing
   let claude#test = { 
     \ 'InflateMessageContent': function("s:InflateMessageContent"),
