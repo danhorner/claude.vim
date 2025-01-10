@@ -8,14 +8,20 @@
 # Test ClaudeMarkBuffer -> included buffer ui
 
 Include: included_buffers.vader
+Include: chat_response.vader
 
 #
 # Test: InflateMessageContent()
 #
 
 Before(Is Testing Enabled):
+
+  let saved_settings = [&et, &ts, &sw]
+  set expandtab ts=2 sw=2
   Assert exists("claude#test.ParseChatBuffer"), "Please define g:claude_testing=1 and source claude.vim again"
 After:
+  let [&et, &ts, &sw] = saved_settings
+  unlet saved_settings
 
 Execute (InflateMessageContent(string payload)):
   let msg = {'role': 'user', 'content': 'Write a song.'}
@@ -96,24 +102,24 @@ Given (Minimal buffer):
   
   You:Search google for top dog breeds of 2024, and then give me a summary of features of the most common breed.
   Claude: <thinking>
-  	Blah
-  	</thinking>
+    Blah
+    </thinking>
   Tool use (toolu_01Wrc56wJJWBp11jhTWqSHeG): web_search
-  	Input: {"query": "most popular dog breeds 2024 AKC ranking"}
+    Input: {"query": "most popular dog breeds 2024 AKC ranking"}
   Tool result (toolu_01Wrc56wJJWBp11jhTWqSHeG):
-  	https://www.google.com/search\?q=most\%20popular\%20dog\%20breeds\%202024\%20AKC\%20ranking
+    https://www.google.com/search\?q=most\%20popular\%20dog\%20breeds\%202024\%20AKC\%20ranking
   Claude...: 
-  	
-  	Based on blah..
+    
+    Based on blah..
   Tool use (toolu_01M4jj5FEGr6s8rjLPdWK5u9): web_search
-  	Input: {"query": "French Bulldog breed characteristics AKC official"}
+    Input: {"query": "French Bulldog breed characteristics AKC official"}
   Tool result (toolu_01M4jj5FEGr6s8rjLPdWK5u9):
-  	https://www.google.com/search\?q=French\%20Bulldog\%20breed\%20characteristics\%20AKC\%20official
+    https://www.google.com/search\?q=French\%20Bulldog\%20breed\%20characteristics\%20AKC\%20official
   Claude...: 
-  	
-  	Here's a summary of the French Bulldog's key features according to AKC official information:
-  	
-  	blablah
+    
+    Here's a summary of the French Bulldog's key features according to AKC official information:
+    
+    blablah
   
   You: 
 
@@ -172,8 +178,11 @@ Then:
   \    "content": "\n\nHere\'s a summary of the French Bulldog's key features according to AKC official information:\n\nblablah\n"
   \ }
   \]
-  AssertEqual messages, expected_messages
-  AssertEqual system_prompt, expected_system
+  AssertEqual len(expected_messages), len(messages)
+  for i in range(len(messages))
+    AssertEqual expected_messages[i], messages[i] 
+  endfor
+  AssertEqual expected_system, system_prompt
 
 # Test: ResponseExtractToolUses()
 

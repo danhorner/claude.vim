@@ -28,7 +28,7 @@ endif
 if !exists('g:claude_bedrock_model_id')
   let g:claude_bedrock_model_id = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
 endif
-	
+
 if !exists('g:claude_token_usage_categories')
   let g:claude_token_usage_categories = [
         \["Input Tokens", "input_tokens", 3.0/1.0E6],
@@ -278,7 +278,7 @@ function! s:DisplayTokenUsageAndCost(input_usage, final_usage)
 endfunction
 
 function! s:HandleStreamOutput(stream_callback, final_callback, channel, msg)
-	call s:LogMessage("Response Stream:" . a:msg)
+  call s:LogMessage("Response Stream:" . a:msg)
   " Split the message into lines
   let l:lines = split(a:msg, "\n")
   for l:line in l:lines
@@ -1273,6 +1273,7 @@ endfunction
 " Handling responses: Code changes {{{1
 " ============================================================================
 
+" FIXME: Want tests for this
 function! s:ProcessCodeBlock(block, all_changes)
   let l:matches = matchlist(a:block.header, '^\(\S\+\)\s\+\([^:]\+\)\%(:\(.*\)\)\?$')
   let l:filetype = get(l:matches, 1, '')
@@ -1480,6 +1481,7 @@ if g:claude_testing
     \ 'ResponseExtractToolUses': function("s:ResponseExtractToolUses"),
     \ 'GetBuffersContent': function("s:GetBuffersContent"),
     \ 'GetIncludedBuffers': function("s:GetIncludedBuffers"),
+    \ 'ProcessCodeBlock': function("s:ProcessCodeBlock"),
     \ }
 
   call s:SetupClaudeKeybindings()

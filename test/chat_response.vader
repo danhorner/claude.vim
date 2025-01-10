@@ -1,0 +1,139 @@
+# Test: ProcessCodeBlock()
+
+* 
+* ProcessCodeBlock: 
+*   extract suggestions 
+*
+
+Given (Test buffer with function):
+  This is a suggestion
+    ```python
+    def example():
+      return 42
+    ```
+
+Before():
+  let saved_settings=[&et, &ts, &sw]
+  set et ts=4 sw=4
+
+  function NewSplitBuf(title="")
+    vertical new
+    set buftype=nofile
+    " if a:title == "" | 0file | else | file `=a:title`| endif
+    return bufnr('%')
+  endfunction
+
+  function ParseCodeSnippet(buf, line)
+    let backquotes = matchbufline(a:buf, '^[ \t]*```', a:line, "$")[:1]
+    let [l:start, l:end] = map(backquotes, "v:val.lnum")
+    let l:lines = getbufline(a:buf, l:start, l:end-1)
+    let l:indent = matchstr(l:lines[0], '^[ \t]*')
+    return {
+    \ 'header': substitute(l:lines[0], l:indent . "```", "", ""),
+    \ 'code': map(l:lines[1:-1], "substitute(v:val, l:indent, '', '')"),
+    \ 'start_line': l:start + 1
+    \ }
+  endfunction
+
+  let suggestion =<< trim END
+  front_matter
+  ```python test.py:/^def example/<CR>V][c
+  def example():
+    return 84
+  ```
+  end_matter
+  END
+  
+
+After():
+  delfunction ParseCodeSnippet
+  delfunction NewSplitBuf
+  let [&et, &ts, &sw] = saved_settings
+  unlet saved_settings
+* bw! test.py
+
+Execute (Test Mini Parser):
+  let bufnr = NewSplitBuf("test_Changes")
+  call setline(1, suggestion)
+
+  try
+    let block = ParseCodeSnippet("%", 1)
+    AssertEqual block.header, "python test.py:/^def example/<CR>V][c"
+    AssertEqual len(block.code), 2
+    AssertEqual block.code[0], "def example():"
+    AssertEqual block.code[1], "  return 84"
+    AssertEqual block.start_line, 3
+  finally
+    exe  bufnr . "bwipeout!"
+  endtry
+
+Execute (Process valid code replacement):
+  let bufnr = bufnr('%')
+  file test.py
+  let code_bufnr = NewSplitBuf("test_Changes")
+  call setline(1, suggestion)
+  try
+    let block = ParseCodeSnippet("%",1)
+    let all_changes={}
+    call claude#test.ProcessCodeBlock(block, all_changes)
+  finally
+    exe code_bufnr . "bwipeout!"
+  endtry
+
+  
+Then:
+  Assert has_key(all_changes, bufnr), "Changes not recorded for buffer " . string(keys(all_changes))
+  AssertEqual len(all_changes[bufnr]), 1, "Wrong number of changes"
+  AssertEqual all_changes[bufnr][0].type, 'content'
+  AssertEqual all_changes[bufnr][0].normal_command, '/^def example/<CR>V][c'
+  AssertEqual all_changes[bufnr][0].content, "def example():\n  return 84"
+
+
+Execute (Process vimexec block):
+  let bufnr = bufnr('%')
+  let all_changes = {}
+  
+  let suggestion =<< trim END
+     frontmatter
+     ```vimexec test.py
+     :%s/old/new/g
+     :%s/foo/bar/g
+     ```
+     endmatter
+  END
+
+  let bufnr = bufnr('%')
+  file test.py
+  let code_bufnr = NewSplitBuf("test_Changes")
+  call setline(1, suggestion)
+  try
+    let block = ParseCodeSnippet("%",1)
+    let all_changes={}
+    call claude#test.ProcessCodeBlock(block, all_changes)
+  finally
+    exe code_bufnr . "bwipeout!"
+  endtry
+  
+Then:
+  Assert has_key(all_changes, bufnr), "Changes not recorded for buffer"
+  AssertEqual len(all_changes[bufnr]), 1, "Wrong number of changes"
+  AssertEqual all_changes[bufnr][0].type, 'vimexec'
+  AssertEqual all_changes[bufnr][0].commands, [':%s/old/new/g', ':%s/foo/bar/g']
+
+Execute (Check [APPLIED] marking):
+  let bufnr = bufnr('%')
+  let all_changes = {}
+
+  file test.py
+  let code_bufnr = NewSplitBuf("test_Changes")
+  call setline(1, suggestion)
+
+  let block = ParseCodeSnippet("%",1)
+  let all_changes={}
+  call claude#test.ProcessCodeBlock(block, all_changes)
+Then:
+  try
+  AssertEqual '    ```python test.py:/^def example/<CR>V][c [APPLIED]', getline(2)
+  finally
+    exe code_bufnr . "bwipeout!"
+  endtry
